@@ -64,11 +64,7 @@ Our alpha is **more than twice Stübinger's benchmark in absolute terms**, with 
 ├── notebook/
 │   └── pairs_trading_ml.ipynb       # Main notebook (120 cells, 8 steps, all outputs)
 ├── reports/
-│   ├── pairs_trading_report.pdf           # Short report (8 pages, executive summary)
 │   ├── pairs_trading_report_detailed.pdf  # Detailed report (30 pages + appendices)
-│   ├── pairs_trading_report.tex           # LaTeX source (short)
-│   └── pairs_trading_report_detailed.tex  # LaTeX source (detailed)
-├── figures/                          # All figures from the notebook
 ├── requirements.txt                  # Python dependencies
 ├── .gitignore
 ├── LICENSE
@@ -206,19 +202,6 @@ Without being told about sectors, the AE's latent space groups tickers by GICS c
 
 ### 6. Fama-French alpha analysis confirms skill
 Train period delivers **36.6 bps/day alpha** (t = 3.55, significant at 0.1%), more than twice Stübinger's 1998-2015 benchmark of 16 bps/day. Test period alpha remains positive but underpowered due to the short 257-day test window.
-
----
-
-## 🎨 Illustrative Outputs
-
-Key figures are available in the `figures/` folder:
-
-- `fig_step4_subplots.png` — Nine-method comparison (signature plot)
-- `fig_latent_space.png` — Autoencoder latent space with sector coloring
-- `fig_kmeans_clusters.png` — K-means clustering on PC space
-- `fig_exp_C_outliers.png` — Outlier PnL contribution by method
-- `fig_ae_training.png` — Autoencoder training curves
-- `fig_pca_variance.png` — PCA variance justifying latent dim = 10
 
 ---
 
