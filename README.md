@@ -9,7 +9,7 @@
 
 **Author:** Bryan Djoufack · M2 Research Project · April 2026
 
-📄 [**Read the detailed report (PDF, 30 pages)**](reports/pairs_trading_report_detailed.pdf) · 📄 [Short executive summary (8 pages)](reports/pairs_trading_report.pdf)
+📄 [**Read the detailed report (PDF, 30 pages)**](reports/pairs_trading_report_detailed.pdf) 
 
 ---
 
