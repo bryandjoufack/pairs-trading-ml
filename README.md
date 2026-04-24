@@ -1,253 +1,225 @@
-# Machine Learning for Intraday Pairs Trading
+# Intraday Pairs Trading with Machine Learning Filters
 
-> **A benchmark study of nine pair-selection methods for statistical arbitrage on 1-minute S&P 500 data, combining classical criteria (distance, cointegration, correlation) with machine-learning filters (K-means clustering, autoencoder-based neighborhoods).**
+**Reproducing Stübinger & Bredthauer (2017) on the 2020-2026 S&P 500 sample, with K-means and autoencoder filters as remediation.**
 
-![Python](https://img.shields.io/badge/python-3.12-blue)
-![TensorFlow](https://img.shields.io/badge/TensorFlow-2.15-orange)
-![License: MIT](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/status-completed-success)
-
-**Author:** Bryan Djoufack · M2 Research Project · April 2026
-
-📄 [**Read the detailed report (PDF, 30 pages)**](reports/pairs_trading_report_detailed.pdf) 
+> M2 research project — Bryan Djoufack, 2026
 
 ---
 
-## 🎯 Key Results
+## Executive summary
 
-| Method | Test Sharpe (net) | % PnL from outliers | Verdict |
-|---|---|---|---|
-| ae+cointegration | 1.59 | 44% | Event-driven (AMD) |
-| ae+correlation | 1.17 | 28% | Modest gain from ML |
-| kmeans+cointegration | 1.06 | **77%** | **Event-driven (AMD)** |
-| **ae+distance** ⭐ | **1.05** | **-0.5%** | **Broad-based, robust** |
-| kmeans+distance | 1.05 | 37% | Comparable to AE |
-| correlation (baseline) | 0.79 | 29% | Respectable baseline |
-| distance (baseline) | 0.34 | 55% | Modest |
-| cointegration (baseline) | -0.05 | n/a | Fails OOS |
+This project benchmarks nine variants of an intraday statistical arbitrage pairs trading strategy on S&P 500 large caps, faithfully reproducing the methodology of [Stübinger & Bredthauer (2017)](#references) and extending it with two machine learning pair-selection filters: **K-means clustering** on formation-window features and a **rolling autoencoder k-nearest-neighbor filter** à la [Jung et al. (2024)](#references) (Approach B).
 
-**Main finding:** While several methods display high apparent Sharpe ratios, most are driven by a single idiosyncratic event — the AMD-OpenAI partnership (October 2025). **Only `ae+distance` delivers genuine broad-based alpha**, passing all four robustness tests.
+The headline finding is consistent with the declining-profitability literature ([Do & Faff, 2012](#references); [Landgraf, 2016](#references)): **over 2020-2026, all nine method variants exhibit a positive gross Sharpe but a negative net Sharpe after realistic transaction costs**. The statistical edge per round-trip has compressed to 1-3 bps on our sample, down from the ~100 bps implied by Stübinger's 1998-2015 annualised 50.5% return. This is not a bug in the implementation — the per-round-trip diagnostic, replicated across every method, confirms that the cost layer (10 bps/round-trip) is ~2× more conservative than the implicit cost scheme in Stübinger's paper (≈ 20 bps/round-trip).
 
-### Fama-French factor analysis (train period, FF5)
-
-- Daily alpha = **36.6 bps** (annualized ~92%)
-- t-statistic = **3.55** (significant at 0.1%)
-- R² = 4.3% (market-neutral confirmed)
-- Benchmark: Stübinger & Bredthauer (2017) report 16 bps/day with t = 13.77 on S&P 500 over 1998-2015
-
-Our alpha is **more than twice Stübinger's benchmark in absolute terms**, with similar R² confirming statistical arbitrage nature.
+The main result is therefore scientific rather than operational: **modern pair-selection ML improves the gross statistical edge** (kmeans+cointegration lifts gross per RT from 0.65 → 3.69 bps, a 5.7× improvement) but is **insufficient to offset the secular decline of pairs trading profitability** documented by Landgraf (2016) extending from 2008 to the present.
 
 ---
 
-## 📋 Methodology at a Glance
+## Results at a glance
 
-- **Data:** 1-minute OHLC bars on 37 S&P 500 large-caps, 2022-01 to 2026-03 (1,063 trading days)
-- **Walk-forward:** 10-day formation + 5-day trading, 208 non-overlapping windows
-- **Train/Test split:** 73/27 strict temporal split (153 train + 55 test windows)
-- **Signals:** Stübinger's **EV strategy** (varying Bollinger bands, rolling 1-day window, k=2.5)
-- **Transaction costs:** two-tier model, 5-8 bps round-trip
-- **Factor analysis:** Fama-French 5-factor + momentum, Newey-West HAC standard errors
+### 9-method performance — full period (Jan 2020 to Mar 2026)
 
-## 🧠 Machine Learning Components
+| Method | Sharpe (gross) | Sharpe (net) | Total PnL (gross) | Total PnL (net) | Max DD (net) |
+|---|---:|---:|---:|---:|---:|
+| **ae+correlation** | **1.95** | −4.62 | **+34.3%** | −78.6% | −80.1% |
+| correlation | 1.79 | −4.30 | +34.5% | −80.2% | −82.2% |
+| ae+distance | 1.78 | −6.13 | +27.6% | −92.0% | −93.0% |
+| kmeans+distance | 1.74 | −6.25 | +26.6% | −93.0% | −93.4% |
+| kmeans+correlation | 1.66 | −4.64 | +30.5% | −82.5% | −84.5% |
+| distance | 1.15 | −6.00 | +19.7% | −99.6% | −100.4% |
+| **kmeans+cointegration** | 0.69 | **−1.48** | +37.8% | **−79.9%** | −93.7% |
+| ae+cointegration | 0.63 | −2.74 | +22.4% | −95.4% | −97.6% |
+| cointegration | 0.19 | −2.87 | +7.4% | −110.3% | −112.0% |
 
-**K-means filter (K=7):** tickers clustered on hand-crafted features (volatility, beta, market correlation, PCA 1-3, sector dummies). Selection restricted to intra-cluster pairs.
+**Two "winners" for different questions:**
+- Best **gross** signal: `ae+correlation` (Sharpe 1.95) — confirms autoencoders extract a meaningful statistical edge.
+- Best **net** performance: `kmeans+cointegration` (Sharpe −1.48) — confirms clustering restricted to fundamentally similar pairs is the most robust to post-cost erosion.
 
-**Autoencoder filter (latent dim = 10):** symmetric feedforward autoencoder trained on 120-day rolling returns. Latent dimension chosen automatically via PCA 95% variance threshold. Neighborhoods defined by k=7 nearest neighbors in latent space.
+### Per-round-trip diagnostic — the core finding
 
-**Key insight:** the autoencoder spontaneously recovers sector structure without being told about sectors — strong evidence that the learned representation captures meaningful ticker dynamics.
+| Method | Gross / RT (bps) | Cost / RT (bps) | Net / RT (bps) |
+|---|---:|---:|---:|
+| distance | 1.70 | 10.39 | −8.69 |
+| cointegration | 0.65 | 10.39 | −9.74 |
+| correlation | 2.83 | 10.38 | −7.54 |
+| kmeans+distance | 2.32 | 10.38 | −8.06 |
+| kmeans+cointegration | **3.69** | 10.38 | **−6.69** |
+| kmeans+correlation | 2.84 | 10.37 | −7.53 |
+| ae+distance | 2.40 | 10.38 | −7.99 |
+| ae+cointegration | 2.01 | 10.40 | −8.39 |
+| ae+correlation | **3.18** | 10.37 | −7.20 |
+
+**Stübinger (2017) benchmark**: gross ≈ 100 bps/RT, cost ≈ 20 bps/RT, net ≈ 80 bps/RT. Our gross/RT is 30-150× smaller. The costs we apply (10 bps/RT) are in fact 50% more conservative than Stübinger's implicit level.
+
+### k-threshold sensitivity (Step 5)
+
+Higher entry thresholds reduce the number of trades (from ~11 500 round-trips at k=2.5 to ~6 000 at k=3.5) and marginally increase gross per round-trip, but **net remains negative for every method**. The best net Sharpe at k=3.5 is `ae+correlation` at −2.91 (vs −4.62 at k=2.5). The cost drag remains the dominant factor at every k.
+
+### Fama-French 5-factor alpha
+
+All nine methods exhibit **statistically significant negative alpha** after costs, with market betas ≈ 0 (confirming the market-neutral design) and R² ≈ 1-2% (confirming the strategy is not loading on systematic factors):
+
+| Method | Alpha ann. | t-statistic | R² |
+|---|---:|---:|---:|
+| kmeans+cointegration | −17.1% | −4.13 | 0.010 |
+| ae+correlation | −17.8% | −12.78 | 0.010 |
+| distance | −20.7% | −15.63 | 0.011 |
+| cointegration | −22.0% | −7.25 | 0.006 |
+
+For comparison, Stübinger's EV top-20 strategy over 1998-2015 reports **+40.3% annualised alpha with t = +13.77**.
 
 ---
 
-## 📂 Repository Structure
+## Methodology
 
-```
-├── notebook/
-│   └── pairs_trading_ml.ipynb       # Main notebook (120 cells, 8 steps, all outputs)
-├── reports/
-│   ├── pairs_trading_report_detailed.pdf  # Detailed report (30 pages + appendices)
-├── requirements.txt                  # Python dependencies
-├── .gitignore
-├── LICENSE
-└── README.md                         # This file
-```
+### Data
+
+- **Universe**: 39 S&P 500 large caps after clean-day filtering (Tukey outliers + 85% completeness floor)
+- **Frequency**: M1 mid-prices from ICMarkets MetaTrader
+- **Period**: 2020-01-16 → 2026-03-30 (1 558 trading days)
+- **Sector coverage**: 11 GICS sectors
+
+### Walk-forward protocol
+
+Following Stübinger (2017) §4.2:
+- 10-day formation window (pair selection + hedge ratio estimation)
+- 5-day trading window
+- 50-window warm-up before any trade (for ML filter stability)
+- Non-overlapping windows → ~258 formation/trading pairs
+
+### Pair selection methods (3 × 3 = 9 variants)
+
+**Selection rules:**
+- `distance` — minimum sum of squared normalised price distances ([Gatev et al., 2006](#references))
+- `cointegration` — Engle-Granger ADF test, p < 0.05 ([Vidyamurthy, 2004](#references))
+- `correlation` — highest Pearson correlation above 0.7 ([Chen et al., 2019](#references))
+
+**Filter regimes:**
+- `baseline` — no filter, top-N across the whole universe
+- `kmeans` — K-means clustering (K=7, silhouette-optimal) on formation-window features; pairs restricted to intra-cluster
+- `ae+` — autoencoder embeds formation prices to a 5-dim latent space; pairs are drawn from k-NN neighborhoods in latent space ([Jung et al., 2024](#references), Approach B)
+
+The ML filters are **re-fitted every 10 windows** to adapt to regime shifts (Jaccard stability of AE neighborhoods: 0.51; K-means ARI: 0.94).
+
+### Trading rule
+
+Varying Bollinger bands with entry threshold k=2.5σ (robustness to k ∈ {2.5, 3.0, 3.5} in Step 5), mean exit on z-score crossing zero, as in [Stübinger & Bredthauer (2017)](#references) Table 4.
+
+### Return computation
+
+**Gatev (2006) eq (2)-(3)** with compounded leg weights, reporting **return on committed capital** (divides by TOP_N=10 pairs at every bar, even when some are flat). Method-specific capital allocation:
+- distance & correlation: $1/$1 dollar-neutral (w_A = w_B = 0.5)
+- cointegration: β-weighted (w_A = 1/(1+|β|), w_B = |β|/(1+|β|))
+
+### Transaction costs
+
+**Stübinger (2017) §4.5 convention: 5 bps per share per half-turn, all-in** (spread + commission + impact). Applied uniformly; the decomposition (2.5 bps half-spread + 1.5 bps commission + 1.0 bps slippage) is shown for pedagogical transparency but constrained to sum to 5 bps. Round-trip cost per pair ≈ 10 bps.
 
 ---
 
-## 🚀 Quickstart
+## Repository structure
 
-### 1. Clone the repository
-```bash
-git clone https://github.com/bryandjoufack/pairs-trading-ml.git
-cd pairs-trading-ml
+```
+├── pairs_trading_ml_gatev.ipynb   # Main notebook (68 cells, 7 steps)
+├── data/
+│   ├── tickers.csv                # List of S&P 500 tickers
+│   ├── {TICKER}_M5_data.csv       # Raw M1 OHLC data (one file per ticker)
+│   └── ff_factors.csv             # Fama-French factor time series
+├── cahier_de_charges.txt          # Project specifications
+├── return_computation.txt         # Internal note on PnL convention
+├── master_summary.csv             # Auto-generated final results
+└── README.md
 ```
 
-### 2. Set up Python environment
-```bash
-python -m venv venv
-source venv/bin/activate   # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+### Notebook structure
 
-### 3. Acquire 1-minute OHLC data
-
-See [Data section](#-data) below for format specification and data sources.
-
-### 4. Run the notebook
-```bash
-jupyter notebook notebook/pairs_trading_ml.ipynb
-```
-
-**Runtime:** approximately 60-75 minutes total (CPU-only, no GPU needed).
-
-### 5. Notebook structure
-
-| Step | Description | Runtime |
+| Step | Content | Output |
 |---|---|---|
-| 0 | Data preparation (cleaning, duplicate detection, universe filtering) | ~2 min |
-| 1 | Baseline backtest (distance, cointegration, correlation) | ~6 min |
-| 2 | Transaction cost modeling | ~7 min |
-| 3 | K-means filtering (6 methods) | ~15 min |
-| 4 | Autoencoder filtering (9 methods total) | ~30 min |
-| 5 | Robustness analysis (4 experiments) | ~30 min |
-| 6 | Summary and synthesis | <1 min |
-| 7 | Fama-French factor analysis | ~1 min |
+| 0 | Data loading, ticker filtering, time-grid alignment | `close_m1`, `close_d`, `day_flags` |
+| 1 | Walk-forward baseline (3 methods, no costs) | `pairs_log`, baseline equity curves |
+| 2 | Transaction cost model, gross/net PnL, per-RT diagnostic | `pairs_log_costs`, Bloc 2.4bis verdict |
+| 3 | Sector-aware K-means rolling clustering | `clusters_history`, K-means pair lists |
+| 4 | Autoencoder rolling fit + full 9-method backtest | `result_full`, signature equity curves |
+| 5 | k-threshold sensitivity (k ∈ {2.5, 3.0, 3.5}) | `k_summary`, method × k pivots |
+| 6 | Master comparison, sub-period stability, rolling Sharpe | `master_summary.csv` |
+| 7 | Fama-French FF3 / FF3+MOM / FF5 regressions | Alpha t-stats across 9 methods |
 
 ---
 
-## 📊 Data
+## How to reproduce
 
-> ⚠️ **The 1-minute OHLC data used in this study is not included in the repository for licensing reasons.** Market data from brokers and commercial providers is generally subject to redistribution restrictions.
+### Prerequisites
 
-The notebook outputs (graphs, metrics, tables) are preserved in the committed `.ipynb` file, so you can inspect all results without re-running the backtest.
-
-### Expected data format
-
-One CSV per ticker, with columns:
-
-| Column | Type | Description |
-|---|---|---|
-| `timestamp` | datetime | 1-minute bar timestamp (ET) |
-| `open` | float | Open price |
-| `high` | float | High price |
-| `low` | float | Low price |
-| `close` | float | Close price |
-| `volume` | int | Volume |
-
-Example filename: `AAPL.csv`, `MSFT.csv`, etc.
-
-### Approximate data size
-
-The full dataset used in this study:
-- **Period:** 2 January 2022 to 30 March 2026 (~1,063 trading days)
-- **Per-ticker file:** ~40 MB (~380 bars/day × 1,063 days)
-- **Full dataset (37 tickers after cleaning):** ~1.5 GB
-- **Raw universe (72 tickers before filtering):** ~2.4 GB
-
-### Universe
-
-37 tickers retained after data-quality filtering:
-
-```
-Technology (14): AAPL, MSFT, NVDA, TSLA, AMZN, AMD, AVGO, CRM, CSCO,
-                 INTC, NFLX, ORCL, QCOM, TXN
-Finance (7):     JPM, BAC, WFC, C, MS, SCHW, V
-Healthcare (5):  UNH, JNJ, MRK, CVS, GILD
-Consumer (5):    NKE, SBUX, TGT, PEP, PG
-Energy (5):      XOM, CVX, COP, SLB, OXY
-Industrial (1):  BA
+```bash
+python >= 3.10
+pip install numpy pandas matplotlib scikit-learn statsmodels jupyter
 ```
 
-### Where to acquire compatible data
+Note: the autoencoder is implemented in **pure NumPy** (no PyTorch/TensorFlow dependency) for transparency and determinism.
 
-**Commercial providers** (paid):
-- [Polygon.io](https://polygon.io/) — Stocks Starter plan ~$29/month, unlimited queries
-- [Databento](https://databento.com/) — pay-as-you-go, high-quality historical
-- [QuantQuote](https://quantquote.com/) — academic discounts available
-- Broker APIs (Interactive Brokers, Alpaca Markets with free tier)
+### Run
 
-**Academic access** (free, institutional):
-- [WRDS](https://wrds-www.wharton.upenn.edu/) — CRSP, TAQ databases
-- University financial-data subscriptions
+```bash
+jupyter notebook pairs_trading_ml_gatev.ipynb
+# Run all cells. Full run-time ≈ 90-120 minutes on a standard laptop
+```
 
-**Limited free sources:**
-- Yahoo Finance 1-minute (last 7-30 days only, via `yfinance`)
-- Alpha Vantage (limited API calls)
-
-Once data is acquired, place the CSVs in `data/raw/` (create the folder) and the notebook Step 0 will handle loading and cleaning.
+Steps 1-4 share a common random seed; Steps 5-7 depend on the output dictionaries of Step 4.
 
 ---
 
-## 🔬 Main Findings
+## Key design decisions
 
-### 1. Classical cointegration has lost its edge
-Out-of-sample Sharpe of -0.05 confirms the post-2003 decline documented by Do & Faff (2010).
+1. **Method-specific PnL convention**: distance and correlation use naive $1/$1 allocation (no natural β); cointegration uses β-weighted allocation (Vidyamurthy 2004). This keeps total gross capital at $1 per pair regardless of method, so returns are directly comparable across families.
 
-### 2. Machine-learning filtering helps distance-based selection monotonically
-- Train Sharpe: baseline (0.68) < K-means (1.73) < autoencoder (**2.09**)
-- Test Sharpe: baseline (0.34) < K-means (1.05) = autoencoder (1.05)
+2. **Unified cost model**: 5 bps per share per half-turn all-in, matching Stübinger (2017) §4.5 exactly. This is **more favorable** than Landgraf (2016) who applies 50 bps/RT (4 commissions + 2 spread crossings).
 
-### 3. High-Sharpe cointegration methods are event-driven
-`kmeans+cointegration` (Sharpe 1.06) derives **77% of its test PnL** from just 6 outlier pair-windows concentrated around the October 2025 AMD-OpenAI announcement. Remove the outliers, and its effective Sharpe collapses toward zero.
+3. **Return on committed capital**: we report this (rather than employed capital) as it is the conservative investor-perspective metric. Stübinger Table 7 shows the two are very close when the pair activity rate is high (EV: 50.50% vs 50.21%).
 
-`ae+cointegration` (Sharpe 1.59, highest in study) still derives **44%** of its PnL from outliers.
+4. **Rolling ML re-fit**: both K-means and AE are re-fitted every 10 windows, not trained on the full sample. This prevents look-ahead bias and lets the filters adapt to regime shifts.
 
-### 4. The autoencoder spontaneously recovers sector structure
-Without being told about sectors, the AE's latent space groups tickers by GICS classification. TSLA and BA are spontaneously isolated as outliers — consistent with the K-means singleton clusters.
-
-### 5. Robustness confirms ae+distance is the preferred method
-- **Experiment A** — Regularization: 4/4 configs Sharpe > 1.3
-- **Experiment B** — Neighborhood size: 3/3 values Sharpe > 1.2
-- **Experiment C** — Outlier removal: only -0.5% impact on test PnL (vs 77% for kmeans+cointegration)
-- **Experiment D** — 3× transaction costs: 96% of Sharpe retained
-
-### 6. Fama-French alpha analysis confirms skill
-Train period delivers **36.6 bps/day alpha** (t = 3.55, significant at 0.1%), more than twice Stübinger's 1998-2015 benchmark of 16 bps/day. Test period alpha remains positive but underpowered due to the short 257-day test window.
+5. **Fama-French evaluation in Step 7**: we follow Stübinger's Table 9 convention to make alpha comparable with the literature.
 
 ---
 
-## 📚 References
+## Interpretation
 
-**Primary methodological references:**
+The negative net Sharpe across all nine methods is **consistent with three independent findings from the literature**:
 
-- **Stübinger & Bredthauer (2017).** Statistical Arbitrage Pairs Trading with High-Frequency Data. *International Journal of Economics and Financial Issues*, 7(4):650-662. 🎯 *Core methodology*
-- **Sarmento & Horta (2020).** Enhancing a Pairs Trading strategy with the application of Machine Learning. *Expert Systems with Applications*, 158. *K-means filter*
-- **Jung (2024).** A Nearest-Neighbor Approach to Pair Trading. *Working paper.* *Autoencoder neighborhoods*
+1. **[Do & Faff (2012)](#references)**: "pairs trading profits decline over time, and high-frequency costs substantially erode returns".
+2. **[Landgraf (2016)](#references)** §4.5.5: "From 2008-2016, all strategies become unprofitable with negative average returns" — our 2021-2026 period extends this finding.
+3. **[Bowen & Hutchinson (2016)](#references)**: limited profitability post-decimalization in FTSE markets.
 
-**Classical pairs trading:**
+The ML filters partially mitigate but do not reverse this dynamic:
+- K-means on cointegration lifts gross/RT from 0.65 → 3.69 bps (5.7×)
+- The AE filter on correlation produces the best gross Sharpe (1.95)
+- But no filter pushes gross/RT above the 10 bps cost floor
 
-- **Gatev, Goetzmann & Rouwenhorst (2006).** Pairs Trading: Performance of a Relative-Value Arbitrage Rule. *Review of Financial Studies*, 19(3):797-827.
-- **Do & Faff (2010).** Does Simple Pairs Trading Still Work? *Financial Analysts Journal*, 66(4):83-95.
-- **Caldeira & Moura (2013).** Selection of a Portfolio of Pairs Based on Cointegration. *Brazilian Review of Finance*, 11(1):49-80.
-
-**Factor models:**
-
-- **Fama & French (1996).** Multifactor explanations of asset pricing anomalies. *Journal of Finance*, 51(1):55-84.
-- **Fama & French (2015).** A five-factor asset pricing model. *Journal of Financial Economics*, 116(1):1-22.
-
-**Microstructure:**
-
-- **Corwin & Schultz (2012).** A Simple Way to Estimate Bid-Ask Spreads from Daily High and Low Prices. *Journal of Finance*, 67(2):719-760.
-- **Holden & Jacobsen (2014).** Liquidity Measurement Problems in Fast, Competitive Markets. *Journal of Finance*, 69(4):1747-1785.
-
-Full bibliography: see detailed report.
+This suggests that **modern pair selection is necessary but not sufficient**. Potential avenues for further research — outside the scope of this project — would include: tighter timing rules (Velayutham 2nd-crossing filter, cited in Stübinger §4.2.3), broader universes (S&P 500 full coverage rather than our 39-ticker sample), or alternative microstructure-aware execution (Krauss et al., 2017, deep-learning approaches).
 
 ---
 
-## 📝 License
+## References
 
-This project's **code and analysis** are released under the MIT License — see [LICENSE](LICENSE) for details. Market data is not included and subject to its own licensing terms from the original providers.
+- Avellaneda, M., & Lee, J.-H. (2010). Statistical arbitrage in the US equities market. *Quantitative Finance*, 10(7), 761-782.
+- Bowen, D., Hutchinson, M. C., & O'Sullivan, N. (2010). High frequency equity pairs trading: transaction costs, speed of execution, and patterns in returns. *Journal of Trading*.
+- Bowen, D., & Hutchinson, M. C. (2016). Pairs trading in the UK equity market: risk and return. *The European Journal of Finance*, 22(14), 1363-1387.
+- Chen, H., Chen, S., Chen, Z., & Li, F. (2019). Empirical investigation of an equity pairs trading strategy. *Management Science*, 65(1), 370-389.
+- Do, B., & Faff, R. (2010). Does simple pairs trading still work? *Financial Analysts Journal*, 66(4), 83-95.
+- Do, B., & Faff, R. (2012). Are pairs trading profits robust to trading costs? *Journal of Financial Research*, 35(2), 261-287.
+- Gatev, E., Goetzmann, W. N., & Rouwenhorst, K. G. (2006). Pairs trading: performance of a relative-value arbitrage rule. *Review of Financial Studies*, 19(3), 797-827.
+- Jung, N., Oh, T., & Kim, K. (2024). Pairs trading using clustering and deep learning. *Journal of the Korea Data & Information Science Society*.
+- Kishore, V. (2012). Optimizing pairs trading of US equities in a high frequency setting. Working paper, University of Pennsylvania.
+- Krauss, C. (2017). Statistical arbitrage pairs trading strategies: review and outlook. *Journal of Economic Surveys*, 31(2), 513-545.
+- Landgraf, N. (2016). High-frequency pairs trading on NASDAQ: an empirical analysis of transaction cost effects. Master's thesis, University of Hamburg.
+- Stübinger, J., & Bredthauer, J. (2017). Statistical arbitrage pairs trading with high-frequency data. *International Journal of Economics and Financial Issues*, 7(4), 650-662.
+- Vidyamurthy, G. (2004). *Pairs Trading: Quantitative Methods and Analysis*. Wiley.
 
 ---
 
-## 🙋 Contact
+## Author
 
-**Bryan Djoufack**
-M2 Research Project · [LinkedIn](https://www.linkedin.com/in/bryan-djoufack-6aa897195/) · [Email](bryan.djoufacknguessong@gmail.com)
+**Bryan Djoufack** — M2 Financial Engineering, 2026. This project was developed as part of a portfolio for junior trading positions, with emphasis on scientific rigor, academic traceability, and honest reporting of negative-but-informative results.
 
-Feedback and discussions welcome via GitHub Issues.
-
----
-
-## 🏷️ Keywords
-
-`pairs-trading` · `statistical-arbitrage` · `machine-learning` · `autoencoder` · `high-frequency-trading` · `fama-french` · `walk-forward` · `python` · `keras` · `scikit-learn`
+For questions or discussion, open an issue or see accompanying research report (in separate file).
