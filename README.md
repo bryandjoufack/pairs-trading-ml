@@ -121,14 +121,12 @@ Varying Bollinger bands with entry threshold k=2.5σ (robustness to k ∈ {2.5, 
 ## Repository structure
 
 ```
-├── pairs_trading_ml_gatev.ipynb   # Main notebook (68 cells, 7 steps)
 ├── data/
-│   ├── tickers.csv                # List of S&P 500 tickers
-│   ├── {TICKER}_M5_data.csv       # Raw M1 OHLC data (one file per ticker)
-│   └── ff_factors.csv             # Fama-French factor time series
-├── cahier_de_charges.txt          # Project specifications
-├── return_computation.txt         # Internal note on PnL convention
-├── master_summary.csv             # Auto-generated final results
+│   ├── README.md     
+├── notebook/
+|   ├── pairs_trading_ml_gatev.ipynb       
+├── reports/
+|   ├── pairs_trading_report_detailed.pdf                
 └── README.md
 ```
 
